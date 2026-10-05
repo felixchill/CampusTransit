@@ -119,14 +119,18 @@
 @code {
     [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
 
-    [SupplyParameterFromForm] private Credentials? Input { get; set; }
+    private Credentials _form = new();
+
+    [SupplyParameterFromForm]
+    private Credentials Form
+    {
+        get => _form;
+        set => _form = value ?? new Credentials();
+    }
 
     [SupplyParameterFromQuery(Name = "returnUrl")] private string? ReturnUrl { get; set; }
 
     private string? Error { get; set; }
-
-    /// <summary>Never null, even before the first form post arrives.</summary>
-    private Credentials Form => Input ??= new Credentials();
 
     private record DemoAccount(string Role, string Email, string Password, string Icon);
 
