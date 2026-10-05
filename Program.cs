@@ -103,6 +103,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
+// Serve physical files as well as the fingerprinted static-asset endpoints.
+// MapStaticAssets only knows about assets present in its build manifest; if a
+// framework asset such as _framework/blazor.web.js is missing from that manifest
+// the app would 404 it and Blazor would never boot. UseStaticFiles covers that gap.
+app.UseStaticFiles();
 app.MapStaticAssets();
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok", service = "campustransit" }));
 app.MapTransitApi();
