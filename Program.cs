@@ -108,7 +108,7 @@ app.UseAntiforgery();
 // framework asset such as _framework/blazor.web.js is missing from that manifest
 // the app would 404 it and Blazor would never boot. UseStaticFiles covers that gap.
 app.UseStaticFiles();
-app.MapGet("/_framework/blazor.web.js", (IWebHostEnvironment environment) =>
+app.MapGet("/blazor.web.js", (IWebHostEnvironment environment) =>
 {
     var file = environment.WebRootFileProvider.GetFileInfo("_framework/blazor.web.js");
     return !file.Exists
