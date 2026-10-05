@@ -110,8 +110,18 @@ app.UseAntiforgery();
 app.UseStaticFiles();
 app.MapGet("/blazor.web.js", (IWebHostEnvironment environment) =>
 {
-    var path = Path.Combine(environment.WebRootPath, "_framework", "blazor.web.js");
-    return Results.File(path, "text/javascript");
+    var paths = new[]
+    {
+        environment.WebRootPath is null
+            ? null
+            : Path.Combine(environment.WebRootPath, "_framework", "blazor.web.js"),
+        Path.Combine(AppContext.BaseDirectory, "wwwroot", "_framework", "blazor.web.js"),
+        Path.Combine(AppContext.BaseDirectory, "_framework", "blazor.web.js")
+    };
+    var path = paths.FirstOrDefault(candidate => candidate is not null && File.Exists(candidate));
+    return path is null
+        ? Results.NotFound()
+        : Results.File(path, "text/javascript");
 });
 app.MapStaticAssets();
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok", service = "campustransit" }));
