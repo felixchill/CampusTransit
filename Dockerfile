@@ -11,10 +11,12 @@ RUN dotnet restore CampusTransit.csproj
 
 COPY . ./
 RUN dotnet publish CampusTransit.csproj -c Release -o /app --no-restore
+RUN test -f /app/wwwroot/_framework/blazor.web.js
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app ./
+RUN test -f /app/wwwroot/_framework/blazor.web.js
 
 # Run unprivileged. /app must stay writable because the SQLite file is created there.
 RUN chown -R 1654:1654 /app
