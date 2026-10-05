@@ -10,7 +10,7 @@ COPY CampusTransit.csproj ./
 RUN dotnet restore CampusTransit.csproj
 
 COPY . ./
-RUN dotnet publish CampusTransit.csproj -c Release -o /app --no-restore
+RUN dotnet publish CampusTransit.csproj -c Release -o /app
 RUN test -f /app/wwwroot/_framework/blazor.web.js
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
