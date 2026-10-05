@@ -1,0 +1,28 @@
+<div class="card stat @Accent">
+    <div class="stat-head">
+        <span class="stat-label">@Label</span>
+        <span class="stat-icon"><Icon Name="@Icon"/></span>
+    </div>
+
+    <div class="stat-value">
+        @Value
+        @if (!string.IsNullOrEmpty(Unit))
+        {
+            <small>@Unit</small>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(Foot))
+    {
+        <div class="stat-foot">@Foot</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+    [Parameter] public string? Unit { get; set; }
+    [Parameter] public string Icon { get; set; } = "activity";
+    [Parameter] public string Accent { get; set; } = "accent-indigo";
+    [Parameter] public string? Foot { get; set; }
+}

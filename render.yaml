@@ -1,0 +1,19 @@
+# Render blueprint - deploy CampusTransit on the free plan.
+# Connect this repository in the Render dashboard and the service is created from this file.
+services:
+  - type: web
+    name: campustransit
+    runtime: docker
+    plan: free
+    # Frankfurt is the closest Render region to Accra.
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      # Paste the Neon connection string in the Render dashboard; leave it unset to fall
+      # back to a local SQLite file (which the free plan discards on every restart).
+      - key: DATABASE_URL
+        sync: false

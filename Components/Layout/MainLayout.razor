@@ -1,0 +1,64 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+
+<div class="shell">
+    <input type="checkbox" id="nav-drawer" class="drawer-toggle" aria-label="Toggle navigation"/>
+
+    <aside class="sidebar">
+        <NavMenu/>
+    </aside>
+
+    <label class="scrim" for="nav-drawer" aria-hidden="true"></label>
+
+    <div class="main">
+        <header class="topbar">
+            <label class="btn btn-icon menu-toggle" for="nav-drawer" title="Open navigation">
+                <Icon Name="menu"/>
+                <span class="sr-only">Open navigation</span>
+            </label>
+
+            <div class="topbar-title grow">
+                <strong>@Heading</strong>
+                <span>@Caption</span>
+            </div>
+
+            <div class="row">
+                <span class="badge badge-outline nowrap" title="Vehicle telemetry streams from the transit hub">
+                    <span class="live-dot"></span> Live feed
+                </span>
+                <ThemeToggle/>
+            </div>
+        </header>
+
+        <div class="content">
+            @Body
+        </div>
+    </div>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Something went wrong while rendering this page.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">Dismiss</span>
+</div>
+
+@code {
+    protected override void OnParametersSet()
+    {
+        var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?')[0].TrimEnd('/');
+
+        (Heading, Caption) = path switch
+        {
+            "/map" => ("Live Tracking", "Real-time positions and arrival estimates"),
+            "/routes" => ("Routes & Stops", "Published services and their stop sequences"),
+            "/reserve" => ("Seat Reservations", "Hold a seat on an upcoming departure"),
+            "/driver" => ("Driver Console", "Update your vehicle and report service issues"),
+            "/admin" => ("Administration", "Fleet, demand and route performance"),
+            "/access-denied" => ("Access Denied", "Your role does not include this section"),
+            _ => ("Operations Overview", "Campus-wide transit status at a glance")
+        };
+    }
+
+    private string Heading { get; set; } = "Operations Overview";
+    private string Caption { get; set; } = "Campus-wide transit status at a glance";
+}

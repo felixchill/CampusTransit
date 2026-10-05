@@ -1,0 +1,38 @@
+@page "/Error"
+@layout Layout.AuthLayout
+@using System.Diagnostics
+
+<PageTitle>Something went wrong · CampusTransit</PageTitle>
+
+<div class="auth-panel" style="min-height:100vh">
+    <div class="auth-form">
+        <div class="card">
+            <div class="empty">
+                <span class="empty-icon"><Icon Name="alert"/></span>
+                <strong>Something went wrong</strong>
+                <p>An unexpected error occurred while processing this request. Try again, or return to the overview.</p>
+
+                @if (ShowRequestId)
+                {
+                    <p class="mono subtle" style="font-size:.75rem">Request @RequestId</p>
+                }
+
+                <div class="row" style="margin-top:.5rem">
+                    <a class="btn" href="/">Back to overview</a>
+                    <a class="btn btn-primary" href="."><Icon Name="refresh"/> Try again</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

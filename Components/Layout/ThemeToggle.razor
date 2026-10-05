@@ -1,0 +1,31 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<button class="btn btn-icon" @onclick="ToggleAsync" title="@($"Switch to {(_dark ? "light" : "dark")} theme")"
+        aria-label="Toggle colour theme">
+    <Icon Name="@(_dark ? "sun" : "moon")"/>
+</button>
+
+@code {
+    private bool _dark;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var theme = await JS.InvokeAsync<string>("transitTheme.get");
+        _dark = theme == "dark";
+        StateHasChanged();
+    }
+
+    private async Task ToggleAsync()
+    {
+        _dark = !_dark;
+        await JS.InvokeVoidAsync("transitTheme.set", _dark ? "dark" : "light");
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}

@@ -1,0 +1,24 @@
+@{
+    var (tone, icon, text) = Status switch
+    {
+        ShuttleStatus.InService => ("badge-success", "live", "In service"),
+        ShuttleStatus.OutOfService => ("badge-danger", "alert", "Out of service"),
+        _ => ("badge-outline", "clock", "Idle")
+    };
+}
+
+<span class="badge @tone">
+    @if (Status == ShuttleStatus.InService)
+    {
+        <span class="live-dot"></span>
+    }
+    else
+    {
+        <Icon Name="@icon"/>
+    }
+    @text
+</span>
+
+@code {
+    [Parameter] public ShuttleStatus Status { get; set; }
+}

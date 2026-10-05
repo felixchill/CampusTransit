@@ -1,0 +1,182 @@
+@page "/login"
+@layout Layout.AuthLayout
+@using System.ComponentModel.DataAnnotations
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject TransitService Transit
+@inject NavigationManager Navigation
+
+<PageTitle>Sign in · CampusTransit</PageTitle>
+
+<div class="auth">
+    <section class="auth-aside">
+        <div class="row" style="gap:.7rem">
+            <span class="brand-mark"><BrandMark/></span>
+            <span class="brand-text">
+                <strong style="color:#fff">CampusTransit</strong>
+                <span>University of Ghana</span>
+            </span>
+        </div>
+
+        <div>
+            <h1>Campus mobility, in real time.</h1>
+            <p>
+                Track every shuttle on the network, watch seat availability change second by second,
+                and hold your place on the next departure.
+            </p>
+
+            <div class="auth-points" style="margin-top:2rem">
+                <div class="auth-point">
+                    <span class="icon-wrap"><Icon Name="live"/></span>
+                    <div>
+                        <b>Live telemetry</b>
+                        <span>Positions and arrival estimates streamed over SignalR.</span>
+                    </div>
+                </div>
+                <div class="auth-point">
+                    <span class="icon-wrap"><Icon Name="seat"/></span>
+                    <div>
+                        <b>Seat reservations</b>
+                        <span>Reserve up to six seats and see capacity before you board.</span>
+                    </div>
+                </div>
+                <div class="auth-point">
+                    <span class="icon-wrap"><Icon Name="gauge"/></span>
+                    <div>
+                        <b>Fleet oversight</b>
+                        <span>Driver consoles and an administrative view of route performance.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <p class="subtle" style="font-size:.78rem">
+            CampusTransit &middot; University of Ghana, Legon &middot; Demonstration build
+        </p>
+    </section>
+
+    <section class="auth-panel">
+        <EditForm Model="Form" FormName="login" OnValidSubmit="SignInAsync" class="auth-form">
+            <DataAnnotationsValidator/>
+
+            <div>
+                <h2 style="font-size:1.25rem">Sign in</h2>
+                <p class="lede muted" style="font-size:.85rem">Use your campus account to continue.</p>
+            </div>
+
+            @if (!string.IsNullOrEmpty(Error))
+            {
+                <div class="alert alert-danger">
+                    <Icon Name="alert"/>
+                    <span>@Error</span>
+                </div>
+            }
+
+            <div class="field">
+                <label class="label" for="email">Campus email</label>
+                <div class="field-with-icon">
+                    <Icon Name="mail"/>
+                    <InputText id="email" class="input" type="email" autocomplete="username"
+                               placeholder="you@ug.edu.gh" @bind-Value="Form.Email"/>
+                </div>
+                <ValidationMessage For="() => Form.Email"/>
+            </div>
+
+            <div class="field">
+                <label class="label" for="password">Password</label>
+                <div class="field-with-icon">
+                    <Icon Name="lock"/>
+                    <InputText id="password" class="input" type="password" autocomplete="current-password"
+                               placeholder="••••••••" @bind-Value="Form.Password"/>
+                </div>
+                <ValidationMessage For="() => Form.Password"/>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">
+                <Icon Name="arrow-right"/> Sign in
+            </button>
+
+            <div class="demo-accounts">
+                <span class="label">Demonstration accounts</span>
+
+                @foreach (var account in DemoAccounts)
+                {
+                    <div class="demo-account" style="cursor:default">
+                        <span class="empty-icon" style="width:30px;height:30px;border-radius:9px"><Icon Name="@account.Icon"/></span>
+                        <span class="meta grow">
+                            <b>@account.Role</b>
+                            <span>@account.Email</span>
+                        </span>
+                        <span class="badge badge-outline mono nowrap">@account.Password</span>
+                    </div>
+                }
+            </div>
+        </EditForm>
+    </section>
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm] private Credentials? Input { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")] private string? ReturnUrl { get; set; }
+
+    private string? Error { get; set; }
+
+    /// <summary>Never null, even before the first form post arrives.</summary>
+    private Credentials Form => Input ??= new Credentials();
+
+    private record DemoAccount(string Role, string Email, string Password, string Icon);
+
+    private static readonly DemoAccount[] DemoAccounts =
+    [
+        new("Student", "student@st.ug.edu.gh", $"Student{DbSeeder.DefaultPasswordSuffix}", "user"),
+        new("Faculty member", "faculty@ug.edu.gh", $"Faculty{DbSeeder.DefaultPasswordSuffix}", "book"),
+        new("Shuttle driver", "driver@ug.edu.gh", $"Driver{DbSeeder.DefaultPasswordSuffix}", "bus"),
+        new("Administrator", "admin@ug.edu.gh", $"Admin{DbSeeder.DefaultPasswordSuffix}", "shield")
+    ];
+
+    private async Task SignInAsync()
+    {
+        var user = await Transit.AuthenticateAsync(Form.Email.Trim(), Form.Password);
+
+        if (user is null)
+        {
+            Error = "That email and password combination was not recognised.";
+            return;
+        }
+
+        var identity = new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim(ClaimTypes.Name, user.FullName),
+            new Claim(ClaimTypes.Email, user.Email),
+            new Claim(ClaimTypes.Role, user.Role.ToString())
+        ], CookieAuthenticationDefaults.AuthenticationScheme);
+
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(identity),
+            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(10) });
+
+        HttpContext.Response.Redirect(SafeReturnUrl());
+    }
+
+    private string SafeReturnUrl() =>
+        !string.IsNullOrWhiteSpace(ReturnUrl) && ReturnUrl.StartsWith('/') && !ReturnUrl.StartsWith("//")
+            ? ReturnUrl
+            : "/";
+
+    public class Credentials
+    {
+        [Required(ErrorMessage = "Enter your campus email address.")]
+        [EmailAddress(ErrorMessage = "That does not look like a valid email address.")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Enter your password.")]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+    }
+}

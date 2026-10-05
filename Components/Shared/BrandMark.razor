@@ -1,0 +1,11 @@
+@* CampusTransit mark: a closed route with a vehicle node riding on it. Built from two
+   primitives with fixed brand colours so it reads the same in either theme. *@
+<svg class="brand-svg @Class" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+    <circle cx="16" cy="16" r="6.5" fill="none" stroke="#0d131f" stroke-width="2.2"
+            stroke-linecap="round" stroke-dasharray="30.6 10.2"/>
+    <circle cx="9.89" cy="13.78" r="3.1" fill="#4f46e5"/>
+</svg>
+
+@code {
+    [Parameter] public string? Class { get; set; }
+}

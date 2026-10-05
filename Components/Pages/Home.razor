@@ -1,0 +1,225 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject TransitService Transit
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+
+<PageTitle>Overview · CampusTransit</PageTitle>
+
+<PageHeader Title="Operations overview"
+            Subtitle="Live position, capacity and service health across the campus shuttle network.">
+    <Actions>
+        <a class="btn" href="routes"><Icon Name="route"/> Route directory</a>
+        <a class="btn btn-primary" href="map"><Icon Name="map"/> Open live map</a>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-stats">
+    <StatCard Label="Shuttles in service" Value="@inService.ToString()" Unit="@($"/ {shuttles.Count} vehicles")"
+              Icon="bus" Accent="accent-indigo" Foot="Streaming telemetry every 2 seconds"/>
+    <StatCard Label="Seats available now" Value="@seatsAvailable.ToString()" Icon="seat"
+              Accent="accent-green" Foot="Across all active vehicles"/>
+    <StatCard Label="Active routes" Value="@activeRoutes.ToString()" Icon="route"
+              Accent="accent-amber" Foot="Published services running today"/>
+    <StatCard Label="Confirmed reservations" Value="@confirmedReservations.ToString()" Icon="ticket"
+              Accent="accent-rose" Foot="Held by students and faculty"/>
+</div>
+
+<div class="grid grid-split">
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <h2>Live fleet</h2>
+                <span class="sub">Readings update automatically</span>
+            </div>
+            <span class="badge badge-outline"><span class="live-dot"></span> Streaming</span>
+        </div>
+
+        @if (loading)
+        {
+            <div class="card-body stack">
+                <div class="skeleton" style="width:60%"></div>
+                <div class="skeleton" style="width:80%"></div>
+                <div class="skeleton" style="width:45%"></div>
+            </div>
+        }
+        else if (shuttles.Count == 0)
+        {
+            <EmptyState Title="No vehicles registered" Message="Add shuttles to the fleet from the administration console." Icon="bus"/>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                    <tr>
+                        <th>Vehicle</th>
+                        <th>Route</th>
+                        <th>Next stop</th>
+                        <th>ETA</th>
+                        <th style="min-width:150px">Occupancy</th>
+                        <th>Status</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var shuttle in shuttles)
+                    {
+                        var update = Telemetry.ToUpdate(shuttle);
+                        <tr>
+                            <td><span class="shuttle-code">@shuttle.Code</span></td>
+                            <td>
+                                <span class="row" style="gap:.45rem">
+                                    <span class="route-dot" style="--dot:@(shuttle.TransitRoute?.ColorHex ?? "#94a3b8")"></span>
+                                    @(shuttle.TransitRoute?.Name ?? "—")
+                                </span>
+                            </td>
+                            <td>@(update.NextStop ?? "—")</td>
+                            <td class="num">@(update.EtaMinutes > 0 ? $"{update.EtaMinutes} min" : "—")</td>
+                            <td><SeatBar Occupancy="shuttle.Occupancy" Capacity="shuttle.Capacity"/></td>
+                            <td><StatusBadge Status="shuttle.Status"/></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <div class="grid">
+        <section class="card">
+            <div class="card-head">
+                <h2>Route performance</h2>
+                <span class="sub">Headway vs. load</span>
+            </div>
+            <div class="list">
+                @foreach (var route in routes)
+                {
+                    var vehicles = shuttles.Where(s => s.TransitRouteId == route.Id).ToList();
+                    var load = vehicles.Count == 0 ? 0 : (int)Math.Round(vehicles.Average(v => v.Capacity == 0 ? 0 : v.Occupancy * 100.0 / v.Capacity));
+
+                    <div class="list-item static">
+                        <span class="route-dot" style="--dot:@route.ColorHex"></span>
+                        <div class="grow stack" style="gap:.15rem">
+                            <div class="row-between">
+                                <strong style="font-size:.86rem">@route.Name</strong>
+                                <span class="mono subtle">@route.Code</span>
+                            </div>
+                            <div class="progress @Tone(load)"><span style="width:@load%"></span></div>
+                            <div class="row-between subtle" style="font-size:.76rem">
+                                <span>@vehicles.Count vehicle(s) &middot; @route.Stops.Count stops</span>
+                                <span>@load% load</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <h2>Latest service reports</h2>
+            </div>
+
+            @if (reports.Count == 0)
+            {
+                <EmptyState Title="No reports filed" Message="Driver reports will appear here as they are submitted." Icon="bell"/>
+            }
+            else
+            {
+                <div class="list">
+                    @foreach (var report in reports.Take(4))
+                    {
+                        <div class="list-item static" style="align-items:flex-start">
+                            <span class="stat-icon" style="width:28px;height:28px"><Icon Name="@ReportIcon(report.Kind)"/></span>
+                            <div class="grow stack" style="gap:.15rem">
+                                <div class="row-between">
+                                    <strong style="font-size:.85rem">@report.Kind &middot; @report.Shuttle?.Code</strong>
+                                    <span class="subtle mono" style="font-size:.72rem">@Ago(report.CreatedAtUtc)</span>
+                                </div>
+                                <span class="muted" style="font-size:.8rem">@report.Message</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    private bool loading = true;
+    private List<Shuttle> shuttles = [];
+    private List<TransitRoute> routes = [];
+    private List<ServiceReport> reports = [];
+    private int confirmedReservations;
+    private int seatsAvailable;
+    private int inService;
+    private int activeRoutes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+
+        // Refresh the dashboard snapshot while the circuit is alive.
+        _ = LoopAsync();
+    }
+
+    private async Task LoopAsync()
+    {
+        try
+        {
+            while (!_cts.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token);
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Circuit disposed.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        shuttles = await Transit.GetShuttlesAsync();
+        routes = await Transit.GetRoutesAsync();
+        reports = await Transit.GetReportsAsync(6);
+        confirmedReservations = await Db.Reservations.CountAsync(r => r.Status == ReservationStatus.Confirmed);
+        seatsAvailable = shuttles.Sum(s => Math.Max(0, s.Capacity - s.Occupancy));
+        inService = shuttles.Count(s => s.Status == ShuttleStatus.InService);
+        activeRoutes = routes.Count(r => r.IsActive);
+        loading = false;
+    }
+
+    private static string Tone(int load) => load >= 85 ? "full" : load >= 65 ? "warn" : "ok";
+
+    private static string ReportIcon(ReportKind kind) => kind switch
+    {
+        ReportKind.Delay => "clock",
+        ReportKind.Capacity => "seat",
+        ReportKind.Maintenance => "shield",
+        _ => "alert"
+    };
+
+    private static string Ago(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        return span switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalMinutes: < 60 } => $"{(int)span.TotalMinutes} min ago",
+            { TotalHours: < 24 } => $"{(int)span.TotalHours} h ago",
+            _ => $"{(int)span.TotalDays} d ago"
+        };
+    }
+
+    public void Dispose() => _cts.Cancel();
+}

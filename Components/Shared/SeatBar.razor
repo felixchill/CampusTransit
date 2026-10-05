@@ -1,0 +1,21 @@
+@{
+    var percent = Capacity <= 0 ? 0 : (int)Math.Round(Occupancy * 100.0 / Capacity);
+    var tone = percent >= 100 ? "full" : percent >= 75 ? "warn" : "ok";
+}
+
+<div class="seat-bar">
+    <div class="progress @tone" role="progressbar" aria-valuenow="@percent" aria-valuemin="0" aria-valuemax="100"
+         aria-label="Seat occupancy">
+        <span style="width:@percent%"></span>
+    </div>
+    @if (ShowLabel)
+    {
+        <span class="mono subtle nowrap">@Occupancy/@Capacity</span>
+    }
+</div>
+
+@code {
+    [Parameter] public int Occupancy { get; set; }
+    [Parameter] public int Capacity { get; set; } = 1;
+    [Parameter] public bool ShowLabel { get; set; } = true;
+}

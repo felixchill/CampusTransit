@@ -1,0 +1,17 @@
+## Build output
+bin/
+obj/
+
+## Local SQLite database (recreated and reseeded on first run)
+*.db
+*.db-shm
+*.db-wal
+
+## IDE
+.vs/
+.idea/
+*.user
+
+## OS
+.DS_Store
+Thumbs.db

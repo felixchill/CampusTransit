@@ -1,0 +1,296 @@
+@page "/driver"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Driver,Admin")]
+@inject TransitService Transit
+@inject UserContext Users
+
+<PageTitle>Driver console · CampusTransit</PageTitle>
+
+<PageHeader Title="Driver console"
+            Subtitle="Report your passenger count and service status. Changes reach passengers immediately.">
+    <Actions>
+        @if (user is not null)
+        {
+            <span class="badge badge-outline"><Icon Name="user"/> @user.FullName</span>
+        }
+    </Actions>
+</PageHeader>
+
+@if (message is not null)
+{
+    <div class="alert @(messageIsError ? "alert-danger" : "alert-success")">
+        <Icon Name="@(messageIsError ? "alert" : "check")"/>
+        <span class="grow">@message</span>
+        <button class="btn btn-icon btn-sm" @onclick="() => message = null" aria-label="Dismiss"><Icon Name="close"/></button>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="card"><div class="card-body"><div class="skeleton" style="width:50%"></div></div></div>
+}
+else if (shuttles.Count == 0)
+{
+    <EmptyState Title="No vehicle assigned"
+                Message="You do not have a shuttle assigned to your account. Contact the transportation office to be added to a shift."
+                Icon="bus"/>
+}
+else
+{
+    <div class="grid grid-split">
+        <section class="card">
+            <div class="card-head">
+                <div>
+                    <h2>Vehicle @Selected?.Code</h2>
+                    <span class="sub">@(Selected?.TransitRoute?.Name ?? "Unassigned route")</span>
+                </div>
+                @if (Selected is not null)
+                {
+                    <StatusBadge Status="Selected.Status"/>
+                }
+            </div>
+
+            @if (Selected is not null)
+            {
+                <div class="card-body stack" style="gap:1.1rem">
+                    <div class="field">
+                        <label class="label" for="vehicle">Select vehicle</label>
+                        <select id="vehicle" class="select" @bind="shuttleId" @bind:after="OnVehicleChanged">
+                            @foreach (var shuttle in shuttles)
+                            {
+                                <option value="@shuttle.Id">@shuttle.Code — @(shuttle.TransitRoute?.Name ?? "Unassigned")</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="grid grid-stats" style="gap:.75rem">
+                        <div class="card" style="box-shadow:none;background:var(--surface-2)">
+                            <div class="stat" style="padding:.75rem .85rem">
+                                <span class="stat-label">Passengers aboard</span>
+                                <span class="stat-value" style="font-size:1.5rem">@occupancy</span>
+                            </div>
+                        </div>
+                        <div class="card" style="box-shadow:none;background:var(--surface-2)">
+                            <div class="stat" style="padding:.75rem .85rem">
+                                <span class="stat-label">Seats free</span>
+                                <span class="stat-value" style="font-size:1.5rem">@Math.Max(0, Selected.Capacity - occupancy)</span>
+                            </div>
+                        </div>
+                        <div class="card" style="box-shadow:none;background:var(--surface-2)">
+                            <div class="stat" style="padding:.75rem .85rem">
+                                <span class="stat-label">Next stop</span>
+                                <span class="stat-value" style="font-size:1rem">@(Telemetry.NextStop(Selected)?.Name ?? "—")</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span class="label">Passenger count (capacity @Selected.Capacity)</span>
+                        <input class="input" type="range" min="0" max="@Selected.Capacity" value="@occupancy"
+                               style="padding:0;border:none;background:transparent"
+                               @oninput="e => occupancy = Parse(e)" aria-label="Passenger count"/>
+                        <div class="row wrap" style="margin-top:.35rem">
+                            @foreach (var delta in new[] { -5, -1, 1, 5 })
+                            {
+                                <button class="btn btn-sm" @onclick="() => Adjust(delta)">
+                                    <Icon Name="@(delta < 0 ? "minus" : "plus")"/> @Math.Abs(delta)
+                                </button>
+                            }
+                            <button class="btn btn-sm" @onclick="() => occupancy = Selected.Capacity">
+                                <Icon Name="users"/> Full vehicle
+                            </button>
+                            <button class="btn btn-sm" @onclick="() => occupancy = 0">
+                                <Icon Name="close"/> Empty
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span class="label">Service status</span>
+                        <div class="segmented">
+                            @foreach (var status in new[] { ShuttleStatus.InService, ShuttleStatus.Idle, ShuttleStatus.OutOfService })
+                            {
+                                <button class="@(statusValue == status ? "sel" : "")" @onclick="() => statusValue = status">
+                                    @Label(status)
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" disabled="@busy" @onclick="SaveAsync">
+                        <Icon Name="check"/> Publish update
+                    </button>
+                </div>
+            }
+        </section>
+
+        <div class="grid">
+            <section class="card">
+                <div class="card-head">
+                    <h2>Report a service issue</h2>
+                </div>
+
+                <div class="card-body stack" style="gap:.9rem">
+                    <div class="field">
+                        <label class="label" for="kind">Report type</label>
+                        <select id="kind" class="select" @bind="kind">
+                            @foreach (var value in Enum.GetValues<ReportKind>())
+                            {
+                                <option value="@value">@value</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="field">
+                        <label class="label" for="text">Details</label>
+                        <textarea id="text" class="input" rows="4" maxlength="400"
+                                  placeholder="Describe the delay, capacity issue or incident…"
+                                  @bind="reportText"></textarea>
+                    </div>
+
+                    <button class="btn btn-block" disabled="@(busy || string.IsNullOrWhiteSpace(reportText))" @onclick="SubmitReportAsync">
+                        <Icon Name="bell"/> Send report
+                    </button>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-head">
+                    <h2>Recent reports</h2>
+                    <span class="badge badge-outline">@reports.Count</span>
+                </div>
+
+                @if (reports.Count == 0)
+                {
+                    <EmptyState Title="Nothing reported" Icon="info" Message="Service reports appear here once submitted."/>
+                }
+                else
+                {
+                    <div class="list">
+                        @foreach (var report in reports.Take(6))
+                        {
+                            <div class="list-item static" style="align-items:flex-start">
+                                <span class="stat-icon" style="width:28px;height:28px"><Icon Name="alert"/></span>
+                                <div class="grow stack" style="gap:.15rem">
+                                    <div class="row-between">
+                                        <strong style="font-size:.84rem">@report.Kind &middot; @report.Shuttle?.Code</strong>
+                                        <span class="subtle mono" style="font-size:.72rem">@report.CreatedAtUtc.ToLocalTime().ToString("dd MMM HH:mm")</span>
+                                    </div>
+                                    <span class="muted" style="font-size:.8rem">@report.Message</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private bool busy;
+    private AppUser? user;
+    private List<Shuttle> shuttles = [];
+    private List<ServiceReport> reports = [];
+
+    private int shuttleId;
+    private int occupancy;
+    private ShuttleStatus statusValue;
+    private ReportKind kind = ReportKind.Delay;
+    private string reportText = "";
+    private string? message;
+    private bool messageIsError;
+
+    private Shuttle? Selected => shuttles.FirstOrDefault(s => s.Id == shuttleId) ?? shuttles.FirstOrDefault();
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = await Users.GetUserAsync();
+
+        if (user is null)
+        {
+            return;
+        }
+
+        shuttles = user.Role == UserRole.Admin
+            ? await Transit.GetShuttlesAsync()
+            : await Transit.GetShuttlesForDriverAsync(user.Id);
+
+        reports = await Transit.GetReportsAsync();
+        Sync();
+        loading = false;
+    }
+
+    private Task OnVehicleChanged()
+    {
+        Sync();
+        return Task.CompletedTask;
+    }
+
+    private void Sync()
+    {
+        shuttleId = Selected?.Id ?? 0;
+        occupancy = Selected?.Occupancy ?? 0;
+        statusValue = Selected?.Status ?? ShuttleStatus.Idle;
+    }
+
+    private void Adjust(int delta)
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        occupancy = Math.Clamp(occupancy + delta, 0, Selected.Capacity);
+    }
+
+    private static int Parse(ChangeEventArgs args) =>
+        int.TryParse(args.Value?.ToString(), out var value) ? value : 0;
+
+    private static string Label(ShuttleStatus status) => status switch
+    {
+        ShuttleStatus.InService => "In service",
+        ShuttleStatus.OutOfService => "Out of service",
+        _ => "Idle"
+    };
+
+    private async Task SaveAsync()
+    {
+        if (user is null || Selected is null)
+        {
+            return;
+        }
+
+        busy = true;
+        var ok = await Transit.UpdateShuttleAsync(Selected.Id, occupancy, statusValue, user.Id, user.Role == UserRole.Admin);
+        busy = false;
+
+        message = ok
+            ? $"{Selected.Code} published: {occupancy} passenger(s), {Label(statusValue)}."
+            : "That vehicle is not assigned to you.";
+        messageIsError = !ok;
+
+        shuttles = user.Role == UserRole.Admin
+            ? await Transit.GetShuttlesAsync()
+            : await Transit.GetShuttlesForDriverAsync(user.Id);
+        Sync();
+    }
+
+    private async Task SubmitReportAsync()
+    {
+        if (user is null || Selected is null || string.IsNullOrWhiteSpace(reportText))
+        {
+            return;
+        }
+
+        busy = true;
+        await Transit.ReportAsync(Selected.Id, user.Id, kind, reportText);
+        busy = false;
+
+        message = "Report submitted. Dispatchers and passengers have been notified.";
+        messageIsError = false;
+        reportText = "";
+        reports = await Transit.GetReportsAsync();
+    }
+}

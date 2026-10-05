@@ -1,0 +1,14 @@
+<div class="empty">
+    <span class="empty-icon"><Icon Name="@Icon"/></span>
+    <strong>@Title</strong>
+    @if (!string.IsNullOrEmpty(Message))
+    {
+        <p>@Message</p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public string Icon { get; set; } = "info";
+}

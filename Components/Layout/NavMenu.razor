@@ -1,0 +1,105 @@
+@* Nav links close the drawer by clearing the CSS checkbox that drives it. *@
+@{
+    const string Close = "document.getElementById('nav-drawer').checked=false";
+}
+
+<NavLink class="brand" href="" Match="NavLinkMatch.All">
+    <span class="brand-mark"><BrandMark/></span>
+    <span class="brand-text">
+        <strong>CampusTransit</strong>
+        <span>University of Ghana</span>
+    </span>
+</NavLink>
+
+<AuthorizeView>
+    <Authorized Context="auth">
+        <nav class="nav">
+            <span class="nav-label">Travel</span>
+
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All" onclick="@Close">
+                <Icon Name="dashboard"/> Overview
+            </NavLink>
+
+            <NavLink class="nav-link" href="map" onclick="@Close">
+                <Icon Name="map"/> Live tracking
+            </NavLink>
+
+            <NavLink class="nav-link" href="routes" onclick="@Close">
+                <Icon Name="route"/> Routes &amp; stops
+            </NavLink>
+
+            @if (Is(auth, UserRole.Student) || Is(auth, UserRole.Faculty))
+            {
+                <NavLink class="nav-link" href="reserve" onclick="@Close">
+                    <Icon Name="ticket"/> Seat reservations
+                </NavLink>
+            }
+
+            @if (Is(auth, UserRole.Driver) || Is(auth, UserRole.Admin))
+            {
+                <span class="nav-label">Operations</span>
+                <NavLink class="nav-link" href="driver" onclick="@Close">
+                    <Icon Name="bus"/> Driver console
+                </NavLink>
+            }
+
+            @if (Is(auth, UserRole.Admin))
+            {
+                <NavLink class="nav-link" href="admin" onclick="@Close">
+                    <Icon Name="chart"/> Administration
+                </NavLink>
+            }
+        </nav>
+
+        <div class="sidebar-foot">
+            <div class="user-chip">
+                <span class="avatar">@Initials(auth.User.Identity?.Name)</span>
+                <span class="meta">
+                    <b>@auth.User.Identity?.Name</b>
+                    <span>@Describe(auth)</span>
+                </span>
+            </div>
+
+            <a class="btn btn-sm btn-block" href="logout">
+                <Icon Name="logout"/> Sign out
+            </a>
+        </div>
+    </Authorized>
+
+    <NotAuthorized>
+        <nav class="nav">
+            <span class="nav-label">Travel</span>
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All" onclick="@Close">
+                <Icon Name="dashboard"/> Overview
+            </NavLink>
+            <NavLink class="nav-link" href="map" onclick="@Close">
+                <Icon Name="map"/> Live tracking
+            </NavLink>
+            <NavLink class="nav-link" href="routes" onclick="@Close">
+                <Icon Name="route"/> Routes &amp; stops
+            </NavLink>
+        </nav>
+
+        <div class="sidebar-foot">
+            <a class="btn btn-primary btn-sm btn-block" href="login">
+                <Icon Name="user"/> Sign in
+            </a>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private static bool Is(AuthenticationState state, UserRole role) => state.User.IsInRole(role.ToString());
+
+    private static string Describe(AuthenticationState state) =>
+        state.User.IsInRole(nameof(UserRole.Admin)) ? "Transportation administrator"
+        : state.User.IsInRole(nameof(UserRole.Driver)) ? "Shuttle driver"
+        : state.User.IsInRole(nameof(UserRole.Faculty)) ? "Faculty member"
+        : state.User.IsInRole(nameof(UserRole.Student)) ? "Student"
+        : "Guest";
+
+    private static string Initials(string? name) => string.Concat(
+        (name ?? "?").Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Take(2)
+            .Select(part => char.ToUpperInvariant(part[0])));
+}

@@ -1,0 +1,305 @@
+@page "/map"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject TransitService Transit
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@using Microsoft.AspNetCore.SignalR.Client
+
+<PageTitle>Live tracking · CampusTransit</PageTitle>
+
+<PageHeader Title="Live tracking"
+            Subtitle="Vehicle positions are streamed from the transit hub as they are reported by drivers.">
+    <Actions>
+        @if (selectedRoute is null)
+        {
+            <span class="badge badge-accent"><Icon Name="filter"/> All routes</span>
+        }
+        else
+        {
+            <button class="btn btn-sm" @onclick="ClearFilter"><Icon Name="close"/> Clear filter</button>
+        }
+        <span class="badge @(hubConnected ? "badge-success" : "badge-warn")">
+            @if (hubConnected)
+            {
+                <span class="live-dot"></span>
+            }
+            else
+            {
+                <Icon Name="refresh"/>
+            }
+            @(hubConnected ? "Hub connected" : "Connecting")
+        </span>
+    </Actions>
+</PageHeader>
+
+<div class="row wrap">
+    <button class="chip @(selectedRoute is null ? "sel" : "")" @onclick="ClearFilter">
+        <Icon Name="filter"/> All services
+    </button>
+    @foreach (var route in routes)
+    {
+        <button class="chip @(selectedRoute == route.Code ? "sel" : "")" @onclick="() => SelectRoute(route.Code)">
+            <span class="route-dot" style="--dot:@route.ColorHex"></span> @route.Name
+        </button>
+    }
+</div>
+
+<div class="grid grid-map">
+    <div class="map-shell">
+        <div id="transit-map" class="map-canvas"></div>
+
+        <div class="map-legend">
+            @foreach (var route in routes)
+            {
+                <div class="row">
+                    <span class="route-dot" style="--dot:@route.ColorHex"></span>
+                    <span class="muted">@route.Code &middot; @route.Name</span>
+                </div>
+            }
+        </div>
+
+        @if (!mapReady)
+        {
+            <div class="map-overlay-note">
+                <div class="alert alert-warn">
+                    <Icon Name="alert"/>
+                    <span>
+                        The interactive map could not be loaded. Vehicle positions are still updating in the
+                        fleet panel on the right.
+                    </span>
+                </div>
+            </div>
+        }
+    </div>
+
+    <aside class="card">
+        <div class="card-head">
+            <div>
+                <h2>Fleet</h2>
+                <span class="sub">@visible.Count vehicle(s) shown</span>
+            </div>
+            <button class="btn btn-icon" title="Recentre the map" @onclick="FitAsync"><Icon Name="pin"/></button>
+        </div>
+
+        <div style="max-height:520px;overflow-y:auto">
+            @if (visible.Count == 0)
+            {
+                <EmptyState Title="Nothing to show" Message="No vehicles are reporting on this selection right now." Icon="bus"/>
+            }
+            else
+            {
+                @foreach (var shuttle in visible)
+                {
+                    <div class="shuttle-card @(focusedId == shuttle.ShuttleId ? "sel" : "")"
+                         @onclick="() => FocusAsync(shuttle)">
+                        <div class="row-between">
+                            <span class="row" style="gap:.45rem">
+                                <span class="route-dot" style="--dot:@shuttle.Color"></span>
+                                <span class="shuttle-code">@shuttle.Code</span>
+                            </span>
+                            <span class="badge @(shuttle.Status == "InService" ? "badge-success" : "badge-outline")">
+                                @(shuttle.Status == "InService" ? "In service" : shuttle.Status)
+                            </span>
+                        </div>
+
+                        <SeatBar Occupancy="shuttle.Occupancy" Capacity="shuttle.Capacity"/>
+
+                        <div class="row-between" style="font-size:.78rem">
+                            <span class="kv">
+                                @if (shuttle.NextStop is not null)
+                                {
+                                    <Icon Name="pin"/>
+                                    <span>Next</span> <b>@shuttle.NextStop</b>
+                                }
+                                else
+                                {
+                                    <span class="subtle">Unassigned</span>
+                                }
+                            </span>
+                            @if (shuttle.EtaMinutes > 0)
+                            {
+                                <span class="badge badge-outline"><Icon Name="clock"/> @shuttle.EtaMinutes min</span>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="card-foot">
+            <Icon Name="info"/> Telemetry refreshes on every hub broadcast (about every two seconds).
+        </div>
+    </aside>
+</div>
+
+@code {
+    private IJSObjectReference? module;
+    private HubConnection? hub;
+    private List<TransitRoute> routes = [];
+    private readonly Dictionary<int, ShuttleUpdate> feed = new();
+
+    private bool mapReady;
+    private bool hubConnected;
+    private string? selectedRoute;
+    private int? focusedId;
+    private bool started;
+
+    private List<ShuttleUpdate> visible => feed.Values
+        .Where(u => selectedRoute is null || u.RouteCode == selectedRoute)
+        .OrderBy(u => u.Code)
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        routes = await Transit.GetRoutesAsync();
+
+        foreach (var update in await Transit.GetLiveAsync())
+        {
+            feed[update.ShuttleId] = update;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || started)
+        {
+            return;
+        }
+
+        started = true;
+
+        try
+        {
+            module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/transitMap.js");
+            mapReady = await module.InvokeAsync<bool>("init", "transit-map");
+
+            if (mapReady)
+            {
+                await module.InvokeVoidAsync("renderRoutes", routes.Select(r => new
+                {
+                    r.Id,
+                    r.Name,
+                    r.Code,
+                    r.ColorHex,
+                    Stops = r.Stops.OrderBy(s => s.Sequence)
+                        .Select(s => new { s.Id, s.Name, s.Latitude, s.Longitude, s.Sequence })
+                }));
+
+                await module.InvokeVoidAsync("updateShuttles", visible);
+            }
+        }
+        catch (JSException)
+        {
+            mapReady = false;
+        }
+
+        await ConnectAsync();
+        StateHasChanged();
+    }
+
+    private async Task ConnectAsync()
+    {
+        try
+        {
+            hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/transit"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            hub.On<ShuttleUpdate>("ShuttleUpdated", update => InvokeAsync(async () =>
+            {
+                feed[update.ShuttleId] = update;
+
+                if (mapReady && module is not null)
+                {
+                    await module.InvokeVoidAsync("updateShuttles", visible);
+                }
+
+                StateHasChanged();
+            }));
+
+            hub.Reconnected += _ => InvokeAsync(() =>
+            {
+                hubConnected = true;
+                StateHasChanged();
+                return Task.CompletedTask;
+            });
+
+            hub.Closed += _ => InvokeAsync(() =>
+            {
+                hubConnected = false;
+                StateHasChanged();
+                return Task.CompletedTask;
+            });
+
+            await hub.StartAsync();
+            hubConnected = true;
+        }
+        catch (Exception)
+        {
+            hubConnected = false;
+        }
+    }
+
+    private async Task SelectRoute(string code)
+    {
+        selectedRoute = code;
+        focusedId = null;
+        await PushAsync();
+    }
+
+    private async Task ClearFilter()
+    {
+        selectedRoute = null;
+        focusedId = null;
+        await PushAsync();
+    }
+
+    private async Task FocusAsync(ShuttleUpdate update)
+    {
+        focusedId = update.ShuttleId;
+
+        if (mapReady && module is not null)
+        {
+            await module.InvokeVoidAsync("focus", update.Latitude, update.Longitude, 18);
+        }
+    }
+
+    private async Task FitAsync()
+    {
+        if (mapReady && module is not null)
+        {
+            await module.InvokeVoidAsync("fit");
+        }
+    }
+
+    private async Task PushAsync()
+    {
+        if (mapReady && module is not null)
+        {
+            await module.InvokeVoidAsync("updateShuttles", visible);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hub is not null)
+        {
+            await hub.DisposeAsync();
+        }
+
+        if (module is not null)
+        {
+            try
+            {
+                await module.InvokeVoidAsync("destroy");
+                await module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is already gone.
+            }
+        }
+    }
+}

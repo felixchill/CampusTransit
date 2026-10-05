@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content="CampusTransit - real-time shuttle tracking, seat reservations and fleet operations for the University of Ghana, Legon."/>
+    <base href="/"/>
+    <ResourcePreloader/>
+
+    <!-- Theme bootstrap: runs before the stylesheets so the first paint is already correct,
+         and re-runs after every Blazor enhanced navigation. -->
+    <script>
+        (function () {
+            window.applyTransitTheme = function () {
+                try {
+                    var stored = window.localStorage.getItem("campustransit.theme");
+                    var dark = stored
+                        ? stored === "dark"
+                        : !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+                    var theme = dark ? "dark" : "light";
+                    document.documentElement.setAttribute("data-theme", theme);
+                    document.documentElement.style.colorScheme = theme;
+                } catch (e) {
+                    document.documentElement.setAttribute("data-theme", "light");
+                }
+            };
+
+            window.applyTransitTheme();
+            document.addEventListener("DOMContentLoaded", window.applyTransitTheme);
+            document.addEventListener("blazor-enhancedload", window.applyTransitTheme);
+
+            // Blazor enhanced navigation rewrites the document, which can drop the theme
+            // attribute on <html>. Re-apply it after every enhanced page load.
+            (function attach() {
+                if (window.Blazor && typeof window.Blazor.addEventListener === "function") {
+                    window.Blazor.addEventListener("enhancedload", window.applyTransitTheme);
+                    return;
+                }
+
+                setTimeout(attach, 60);
+            })();
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://a.tile.openstreetmap.org"/>
+    <link rel="preconnect" href="https://b.tile.openstreetmap.org"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link rel="stylesheet" href="@Assets["app.css"]"/>
+    <link rel="stylesheet" href="@Assets["CampusTransit.styles.css"]"/>
+    <ImportMap/>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
+    <HeadOutlet/>
+</head>
+
+<body>
+<Routes/>
+<ReconnectModal/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="@Assets["js/transit.js"]"></script>
+<script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>

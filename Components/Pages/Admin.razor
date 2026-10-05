@@ -1,0 +1,297 @@
+@page "/admin"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")]
+@implements IDisposable
+@inject TransitService Transit
+
+<PageTitle>Administration · CampusTransit</PageTitle>
+
+<PageHeader Title="Administration"
+            Subtitle="Fleet state, route performance and passenger demand for the transportation office.">
+    <Actions>
+        <a class="btn" href="driver"><Icon Name="bus"/> Driver console</a>
+        <a class="btn btn-primary" href="map"><Icon Name="map"/> Live map</a>
+    </Actions>
+</PageHeader>
+
+<div class="grid grid-stats">
+    <StatCard Label="Fleet size" Value="@shuttles.Count.ToString()" Icon="bus" Accent="accent-indigo"
+              Foot="@($"{inService} in service · {outOfService} out of service")"/>
+    <StatCard Label="Average load" Value="@averageLoad.ToString()" Unit="%" Icon="gauge" Accent="accent-green"
+              Foot="Mean occupancy across in-service vehicles"/>
+    <StatCard Label="Seat reservations" Value="@confirmed.ToString()" Icon="ticket" Accent="accent-amber"
+              Foot="@($"{cancelled} cancelled to date")"/>
+    <StatCard Label="Open reports" Value="@reports.Count.ToString()" Icon="bell" Accent="accent-rose"
+              Foot="Filed by drivers in the last 24 hours"/>
+</div>
+
+<div class="grid grid-split">
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <h2>Fleet register</h2>
+                <span class="sub">Vehicle state, driver assignment and live load</span>
+            </div>
+            <button class="btn btn-sm" @onclick="RefreshAsync"><Icon Name="refresh"/> Refresh</button>
+        </div>
+
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                <tr>
+                    <th>Vehicle</th>
+                    <th>Route</th>
+                    <th>Driver</th>
+                    <th style="min-width:140px">Load</th>
+                    <th class="num">Seats free</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var shuttle in shuttles)
+                {
+                    <tr>
+                        <td><span class="shuttle-code">@shuttle.Code</span></td>
+                        <td>
+                            <span class="row" style="gap:.45rem">
+                                <span class="route-dot" style="--dot:@(shuttle.TransitRoute?.ColorHex ?? "#94a3b8")"></span>
+                                @(shuttle.TransitRoute?.Code ?? "—")
+                            </span>
+                        </td>
+                        <td>@(shuttle.Driver?.FullName ?? "Unassigned")</td>
+                        <td><SeatBar Occupancy="shuttle.Occupancy" Capacity="shuttle.Capacity"/></td>
+                        <td class="num">@shuttle.SeatsAvailable</td>
+                        <td><StatusBadge Status="shuttle.Status"/></td>
+                        <td class="num">
+                            <button class="btn btn-sm" @onclick="() => ToggleStatusAsync(shuttle)">
+                                <Icon Name="@(shuttle.Status == ShuttleStatus.InService ? "close" : "check")"/>
+                                @(shuttle.Status == ShuttleStatus.InService ? "Stand down" : "Dispatch")
+                            </button>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <div class="grid">
+        <section class="card">
+            <div class="card-head">
+                <h2>Service directory</h2>
+                <span class="sub">Activate or suspend a route</span>
+            </div>
+
+            <div class="list">
+                @foreach (var route in routes)
+                {
+                    var vehicles = shuttles.Where(s => s.TransitRouteId == route.Id).ToList();
+                    var load = vehicles.Count == 0 ? 0 : (int)Math.Round(vehicles.Average(v => v.Capacity == 0 ? 0 : v.Occupancy * 100.0 / v.Capacity));
+
+                    <div class="list-item static">
+                        <span class="route-dot" style="--dot:@route.ColorHex"></span>
+                        <div class="grow stack" style="gap:.15rem">
+                            <div class="row-between">
+                                <strong style="font-size:.85rem">@route.Name</strong>
+                                <span class="mono subtle" style="font-size:.72rem">@route.Code</span>
+                            </div>
+                            <div class="progress @Tone(load)"><span style="width:@load%"></span></div>
+                            <div class="row-between subtle" style="font-size:.75rem">
+                                <span>@vehicles.Count vehicle(s) · headway @route.HeadwayMinutes min</span>
+                                <span>@load% load</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm" @onclick="() => ToggleRouteAsync(route)">
+                            @(route.IsActive ? "Suspend" : "Activate")
+                        </button>
+                    </div>
+                }
+            </div>
+        </section>
+    </div>
+</div>
+
+<div class="grid grid-split">
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <h2>Passenger demand</h2>
+                <span class="sub">Most recent reservations across all accounts</span>
+            </div>
+        </div>
+
+        @if (reservations.Count == 0)
+        {
+            <EmptyState Title="No reservations recorded" Icon="ticket" Message="Bookings made by passengers will be listed here."/>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                    <tr>
+                        <th>Reference</th>
+                        <th>Passenger</th>
+                        <th>Route</th>
+                        <th>Boarding stop</th>
+                        <th class="num">Seats</th>
+                        <th>Status</th>
+                        <th class="num">Booked</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var reservation in reservations)
+                    {
+                        <tr>
+                            <td><span class="mono">@reservation.Reference</span></td>
+                            <td>@reservation.AppUser?.FullName</td>
+                            <td>
+                                <span class="row" style="gap:.45rem">
+                                    <span class="route-dot" style="--dot:@(reservation.TransitRoute?.ColorHex ?? "#94a3b8")"></span>
+                                    @(reservation.TransitRoute?.Code ?? "—")
+                                </span>
+                            </td>
+                            <td>@reservation.Stop?.Name</td>
+                            <td class="num">@reservation.Seats</td>
+                            <td><span class="badge @StatusTone(reservation.Status)">@reservation.Status</span></td>
+                            <td class="num mono subtle">@reservation.CreatedAtUtc.ToLocalTime().ToString("dd MMM HH:mm")</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="card">
+        <div class="card-head">
+            <h2>Driver reports</h2>
+            <span class="badge badge-outline">@reports.Count</span>
+        </div>
+
+        @if (reports.Count == 0)
+        {
+            <EmptyState Title="No reports" Icon="info" Message="Delay and incident reports appear here."/>
+        }
+        else
+        {
+            <div class="list">
+                @foreach (var report in reports)
+                {
+                    <div class="list-item static" style="align-items:flex-start">
+                        <span class="stat-icon" style="width:28px;height:28px"><Icon Name="@IconFor(report.Kind)"/></span>
+                        <div class="grow stack" style="gap:.15rem">
+                            <div class="row-between">
+                                <strong style="font-size:.84rem">@report.Kind · @report.Shuttle?.Code</strong>
+                                <span class="subtle mono" style="font-size:.72rem">
+                                    @report.CreatedAtUtc.ToLocalTime().ToString("dd MMM HH:mm")
+                                </span>
+                            </div>
+                            <span class="muted" style="font-size:.8rem">@report.Message</span>
+                            <span class="subtle" style="font-size:.74rem">@(report.Driver?.FullName ?? "Unknown driver")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    private List<Shuttle> shuttles = [];
+    private List<TransitRoute> routes = [];
+    private List<Reservation> reservations = [];
+    private List<ServiceReport> reports = [];
+
+    private int inService;
+    private int outOfService;
+    private int averageLoad;
+    private int confirmed;
+    private int cancelled;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = LoopAsync();
+    }
+
+    private async Task LoopAsync()
+    {
+        try
+        {
+            while (!_cts.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(8), _cts.Token);
+                await InvokeAsync(async () =>
+                {
+                    shuttles = await Transit.GetShuttlesAsync();
+                    Compute();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Circuit disposed.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        shuttles = await Transit.GetShuttlesAsync();
+        routes = await Transit.GetRoutesAsync();
+        reservations = await Transit.GetAllReservationsAsync();
+        reports = await Transit.GetReportsAsync(12);
+        Compute();
+    }
+
+    private Task RefreshAsync() => LoadAsync();
+
+    private void Compute()
+    {
+        inService = shuttles.Count(s => s.Status == ShuttleStatus.InService);
+        outOfService = shuttles.Count(s => s.Status == ShuttleStatus.OutOfService);
+        averageLoad = inService == 0
+            ? 0
+            : (int)Math.Round(shuttles.Where(s => s.Status == ShuttleStatus.InService)
+                .Average(s => s.Capacity == 0 ? 0 : s.Occupancy * 100.0 / s.Capacity));
+        confirmed = reservations.Count(r => r.Status == ReservationStatus.Confirmed);
+        cancelled = reservations.Count(r => r.Status == ReservationStatus.Cancelled);
+    }
+
+    private async Task ToggleRouteAsync(TransitRoute route)
+    {
+        await Transit.SetRouteActiveAsync(route.Id, !route.IsActive);
+        routes = await Transit.GetRoutesAsync();
+    }
+
+    private async Task ToggleStatusAsync(Shuttle shuttle)
+    {
+        var next = shuttle.Status == ShuttleStatus.InService ? ShuttleStatus.OutOfService : ShuttleStatus.InService;
+        await Transit.UpdateShuttleAsync(shuttle.Id, null, next, driverId: 0, isAdmin: true);
+        shuttles = await Transit.GetShuttlesAsync();
+        Compute();
+    }
+
+    private static string Tone(int load) => load >= 85 ? "full" : load >= 65 ? "warn" : "ok";
+
+    private static string StatusTone(ReservationStatus status) => status switch
+    {
+        ReservationStatus.Confirmed => "badge-success",
+        ReservationStatus.Completed => "badge-outline",
+        _ => "badge-danger"
+    };
+
+    private static string IconFor(ReportKind kind) => kind switch
+    {
+        ReportKind.Delay => "clock",
+        ReportKind.Capacity => "seat",
+        ReportKind.Maintenance => "shield",
+        _ => "alert"
+    };
+
+    public void Dispose() => _cts.Cancel();
+}

@@ -1,0 +1,15 @@
+bin/
+obj/
+.vs/
+.idea/
+
+# The container creates and seeds its own database.
+*.db
+*.db-shm
+*.db-wal
+
+.git/
+.gitignore
+*.user
+Dockerfile
+.dockerignore

@@ -1,0 +1,288 @@
+@page "/reserve"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Student,Faculty")]
+@implements IDisposable
+@inject TransitService Transit
+@inject UserContext Users
+@inject NavigationManager Nav
+
+<PageTitle>Seat reservations · CampusTransit</PageTitle>
+
+<PageHeader Title="Seat reservations"
+            Subtitle="Hold a seat on a departing shuttle. Capacity is checked against the live vehicle count.">
+    <Actions>
+        <a class="btn" href="map"><Icon Name="map"/> Live map</a>
+    </Actions>
+</PageHeader>
+
+@if (message is not null)
+{
+    <div class="alert @(messageIsError ? "alert-danger" : "alert-success")">
+        <Icon Name="@(messageIsError ? "alert" : "check")"/>
+        <span class="grow">@message</span>
+        <button class="btn btn-icon btn-sm" @onclick="() => message = null" aria-label="Dismiss"><Icon Name="close"/></button>
+    </div>
+}
+
+<div class="grid grid-split">
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <h2>Reserve a seat</h2>
+                <span class="sub">Choose a service, departure and boarding stop</span>
+            </div>
+        </div>
+
+        <div class="card-body stack" style="gap:1rem">
+            <div class="field">
+                <label class="label" for="route">Service</label>
+                <select id="route" class="select" @bind="routeId" @bind:after="OnRouteChanged">
+                    @foreach (var route in routes)
+                    {
+                        <option value="@route.Id">@route.Code — @route.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="field">
+                <label class="label" for="shuttle">Departure</label>
+                <select id="shuttle" class="select" @bind="shuttleId" disabled="@(!Departures.Any())">
+                    @if (!Departures.Any())
+                    {
+                        <option value="0">No vehicles are in service on this route</option>
+                    }
+                    @foreach (var shuttle in Departures)
+                    {
+                        <option value="@shuttle.Id">
+                            @shuttle.Code — @shuttle.SeatsAvailable seat(s) free
+                        </option>
+                    }
+                </select>
+            </div>
+
+            <div class="field">
+                <label class="label" for="stop">Boarding stop</label>
+                <select id="stop" class="select" @bind="stopId">
+                    @foreach (var stop in (SelectedRoute?.Stops ?? []).OrderBy(s => s.Sequence))
+                    {
+                        <option value="@stop.Id">@stop.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="field">
+                <span class="label">Seats</span>
+                <div class="row">
+                    <button class="btn btn-icon" @onclick="() => seats = Math.Max(1, seats - 1)" aria-label="Fewer seats">
+                        <Icon Name="minus"/>
+                    </button>
+                    <strong style="min-width:2ch;text-align:center;font-size:1.05rem">@seats</strong>
+                    <button class="btn btn-icon" @onclick="() => seats = Math.Min(6, seats + 1)" aria-label="More seats">
+                        <Icon Name="plus"/>
+                    </button>
+                    <span class="muted" style="font-size:.82rem">Maximum six seats per reservation</span>
+                </div>
+            </div>
+
+            @if (SelectedShuttle is not null && SelectedStop is not null)
+            {
+                <div class="card" style="background:var(--surface-2);box-shadow:none">
+                    <div class="card-body stack" style="gap:.5rem">
+                        <div class="row-between">
+                            <span class="label">Departure summary</span>
+                            <span class="badge badge-outline mono">@SelectedShuttle.Code</span>
+                        </div>
+                        <div class="row-between" style="font-size:.85rem">
+                            <span class="muted">Boarding at</span>
+                            <strong>@SelectedStop.Name</strong>
+                        </div>
+                        <div class="row-between" style="font-size:.85rem">
+                            <span class="muted">Next arrival</span>
+                            <strong>@Telemetry.EtaMinutes(SelectedShuttle) min</strong>
+                        </div>
+                        <SeatBar Occupancy="SelectedShuttle.Occupancy" Capacity="SelectedShuttle.Capacity"/>
+                    </div>
+                </div>
+            }
+
+            <button class="btn btn-primary btn-block" disabled="@(busy || SelectedShuttle is null)" @onclick="SubmitAsync">
+                @if (busy)
+                {
+                    <span class="live-dot"></span>
+                    <span>Reserving…</span>
+                }
+                else
+                {
+                    <Icon Name="ticket"/>
+                    <span>Reserve @seats seat(s)</span>
+                }
+            </button>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-head">
+            <h2>My reservations</h2>
+            <span class="badge badge-outline">@reservations.Count total</span>
+        </div>
+
+        @if (reservations.Count == 0)
+        {
+            <EmptyState Title="No reservations yet" Message="Seats you reserve will be listed here with their reference number." Icon="ticket"/>
+        }
+        else
+        {
+            <div class="list">
+                @foreach (var reservation in reservations)
+                {
+                    <div class="list-item static" style="align-items:flex-start">
+                        <span class="route-dot" style="--dot:@(reservation.TransitRoute?.ColorHex ?? "#94a3b8")"></span>
+                        <div class="grow stack" style="gap:.2rem">
+                            <div class="row-between">
+                                <strong style="font-size:.86rem">@reservation.TransitRoute?.Name</strong>
+                                <span class="badge @StatusTone(reservation.Status)">@reservation.Status</span>
+                            </div>
+                            <span class="muted" style="font-size:.79rem">
+                                @reservation.Seats seat(s) from @reservation.Stop?.Name
+                                &middot; @(reservation.Shuttle?.Code ?? "any vehicle")
+                            </span>
+                            <span class="mono subtle" style="font-size:.72rem">
+                                @reservation.Reference &middot; booked @reservation.CreatedAtUtc.ToLocalTime().ToString("dd MMM, HH:mm")
+                            </span>
+                        </div>
+
+                        @if (reservation.Status == ReservationStatus.Confirmed)
+                        {
+                            <button class="btn btn-sm btn-danger" @onclick="() => CancelAsync(reservation)">
+                                <Icon Name="close"/> Cancel
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    private List<TransitRoute> routes = [];
+    private List<Shuttle> departures = [];
+    private List<Reservation> reservations = [];
+
+    private AppUser? user;
+    private int routeId;
+    private int shuttleId;
+    private int stopId;
+    private int seats = 1;
+    private bool busy;
+    private string? message;
+    private bool messageIsError;
+
+    private TransitRoute? SelectedRoute => routes.FirstOrDefault(r => r.Id == routeId);
+    private List<Shuttle> Departures => departures.Where(s => s.TransitRouteId == routeId && s.Status == ShuttleStatus.InService).ToList();
+    private Shuttle? SelectedShuttle => Departures.FirstOrDefault(s => s.Id == shuttleId) ?? Departures.FirstOrDefault();
+    private Stop? SelectedStop => SelectedRoute?.Stops.FirstOrDefault(s => s.Id == stopId) ?? SelectedRoute?.Stops.OrderBy(s => s.Sequence).FirstOrDefault();
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = await Users.GetUserAsync();
+        routes = await Transit.GetRoutesAsync();
+        departures = await Transit.GetShuttlesAsync();
+
+        routeId = routes.FirstOrDefault(r => r.IsActive)?.Id ?? routes.FirstOrDefault()?.Id ?? 0;
+        SyncSelection();
+        await LoadReservationsAsync();
+
+        _ = RefreshLoopAsync();
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        try
+        {
+            while (!_cts.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(4), _cts.Token);
+                await InvokeAsync(async () =>
+                {
+                    departures = await Transit.GetShuttlesAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Circuit disposed.
+        }
+    }
+
+    private Task OnRouteChanged()
+    {
+        SyncSelection();
+        return Task.CompletedTask;
+    }
+
+    private void SyncSelection()
+    {
+        var first = Departures.FirstOrDefault();
+        shuttleId = first?.Id ?? 0;
+        stopId = SelectedRoute?.Stops.OrderBy(s => s.Sequence).FirstOrDefault()?.Id ?? 0;
+    }
+
+    private async Task LoadReservationsAsync()
+    {
+        if (user is not null)
+        {
+            reservations = await Transit.GetReservationsAsync(user.Id);
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (user is null || SelectedShuttle is null || SelectedStop is null)
+        {
+            return;
+        }
+
+        busy = true;
+
+        var (ok, text, _) = await Transit.ReserveAsync(user.Id, routeId, SelectedShuttle.Id, SelectedStop.Id, seats);
+
+        busy = false;
+        message = text;
+        messageIsError = !ok;
+
+        if (ok)
+        {
+            seats = 1;
+            departures = await Transit.GetShuttlesAsync();
+            await LoadReservationsAsync();
+        }
+    }
+
+    private async Task CancelAsync(Reservation reservation)
+    {
+        if (user is null)
+        {
+            return;
+        }
+
+        var done = await Transit.CancelAsync(reservation.Id, user.Id, isStaff: false);
+        message = done ? $"Reservation {reservation.Reference} cancelled." : "That reservation could not be cancelled.";
+        messageIsError = !done;
+
+        departures = await Transit.GetShuttlesAsync();
+        await LoadReservationsAsync();
+    }
+
+    private static string StatusTone(ReservationStatus status) => status switch
+    {
+        ReservationStatus.Confirmed => "badge-success",
+        ReservationStatus.Completed => "badge-outline",
+        _ => "badge-danger"
+    };
+
+    public void Dispose() => _cts.Cancel();
+}

@@ -1,0 +1,25 @@
+@page "/logout"
+@layout Layout.AuthLayout
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject NavigationManager Navigation
+
+<PageTitle>Signing out · CampusTransit</PageTitle>
+
+<div class="auth-panel" style="min-height:100vh">
+    <div class="auth-form" style="text-align:center;place-items:center">
+        <span class="empty-icon" style="width:44px;height:44px;border-radius:14px"><Icon Name="logout"/></span>
+        <h2>Signing you out</h2>
+        <p class="muted">Clearing your CampusTransit session.</p>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        HttpContext.Response.Redirect("/login");
+    }
+}
