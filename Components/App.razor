@@ -46,7 +46,7 @@
     <link rel="preconnect" href="https://a.tile.openstreetmap.org"/>
     <link rel="preconnect" href="https://b.tile.openstreetmap.org"/>
     <!-- Leaflet is served from wwwroot/lib/leaflet so the map never depends on a third-party CDN. -->
-    <link rel="stylesheet" href="lib/leaflet/leaflet.css"/>
+    <link rel="stylesheet" href="@Assets["lib/leaflet/leaflet.css"]"/>
     <link rel="stylesheet" href="@Assets["app.css"]"/>
     <link rel="stylesheet" href="@Assets["CampusTransit.styles.css"]"/>
     <ImportMap/>
@@ -57,7 +57,7 @@
 <body>
 <Routes/>
 <ReconnectModal/>
-<script src="lib/leaflet/leaflet.js"></script>
+<script src="@Assets["lib/leaflet/leaflet.js"]"></script>
 <script src="@Assets["js/transit.js"]"></script>
 <script src="_framework/blazor.web.js"></script>
 </body>

@@ -16,6 +16,16 @@ const ATTRIBUTION =
 
 async function waitForLeaflet(timeoutMs = 8000) {
     if (window.L) return window.L;
+
+    const scriptUrl = new URL("lib/leaflet/leaflet.js", document.baseURI).href;
+    await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = scriptUrl;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(`Unable to load Leaflet from ${scriptUrl}`));
+        document.head.appendChild(script);
+    });
+
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
         await new Promise(r => setTimeout(r, 120));
